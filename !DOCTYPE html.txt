@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma de Telemetría - Tren Ligero</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        /* Estilos profesionales */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f7fb;
+            color: #1e2b3c;
+            line-height: 1.5;
+        }
+
+        /* Encabezado institucional */
+        .header {
+            background: linear-gradient(135deg, #0b2a4f 0%, #1a4b7a 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            letter-spacing: 0.5px;
+        }
+
+        .header h2 {
+            font-size: 1.2rem;
+            font-weight: 400;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .proyecto {
+            font-size: 1.1rem;
+            border-left: 4px solid #ffc107;
+            padding-left: 1rem;
+            margin-top: 0.75rem;
+            background: rgba(255,255,255,0.1);
+            display: inline-block;
+            padding: 0.5rem 1.5rem;
+            border-radius: 0 30px 30px 0;
+        }
+
+        .header .proyecto span {
+            font-weight: 700;
+            color: #ffc107;
+        }
+
+        /* Contenedor principal */
+        .container {
+            max-width: 1600px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        /* Mapa */
+        .map-container {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 20, 40, 0.15);
+            margin-bottom: 2.5rem;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        #map {
+            height: 55vh;
+            width: 100%;
+        }
+
+        /* Tablas */
+        .section-title {
+            font-size: 1.6rem;
+            font-weight: 500;
+            color: #0b2a4f;
+            margin-bottom: 1.2rem;
+            border-bottom: 3px solid #ffc107;
+            padding-bottom: 0.5rem;
+            display: inline-block;
+        }
+
+        .table-wrapper {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            padding: 1.5rem;
+            margin-bottom: 2.5rem;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        th {
+            background: #f0f4fa;
+            color: #0b2a4f;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1rem 0.8rem;
+            border-bottom: 2px solid #cbd5e1;
+        }
+
+        td {
+            padding: 0.9rem 0.8rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #f8fafd;
+        }
+
+        /* Estados GPS */
+        .verde {
+            color: #10b981;
+            font-weight: 700;
+            background: #e6f7f0;
+            padding: 0.3rem 0.8rem;
+            border-radius: 30px;
+            display: inline-block;
+        }
+        .amarillo {
+            color: #f59e0b;
+            font-weight: 700;
+            background: #fff3e0;
+            padding: 0.3rem 0.8rem;
+            border-radius: 30px;
+            display: inline-block;
+        }
+        .rojo {
+            color: #ef4444;
+            font-weight: 700;
+            background: #fee9e7;
+            padding: 0.3rem 0.8rem;
+            border-radius: 30px;
+            display: inline-block;
+        }
+
+        /* Loading y errores */
+        .loading {
+            color: #64748b;
+            font-style: italic;
+            padding: 1rem;
+            text-align: center;
+            background: #f9f9fc;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+
+        .error-message {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #b91c1c;
+            padding: 1rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            display: none;
+            font-weight: 500;
+        }
+
+        /* Pie de página */
+        .footer {
+            background: #1e2b3c;
+            color: #e0e7ff;
+            padding: 2rem;
+            margin-top: 3rem;
+            border-top: 4px solid #ffc107;
+            text-align: center;
+        }
+
+        .footer .integrantes {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 2.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .footer .integrante {
+            font-size: 1.2rem;
+            font-weight: 400;
+            background: rgba(255,255,255,0.05);
+            padding: 0.5rem 1.5rem;
+            border-radius: 40px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .footer .copyright {
+            font-size: 0.95rem;
+            opacity: 0.8;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.4rem; }
+            .header h2 { font-size: 1rem; }
+            .container { padding: 0 1rem; }
+            .footer .integrantes { flex-direction: column; gap: 0.8rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ENCABEZADO PROFESIONAL -->
+    <header class="header">
+        <h1>Instituto Politécnico Nacional</h1>
+        <h2>Unidad Profesional Interdisciplinaria de Ingeniería y Tecnologías Avanzadas</h2>
+        <div class="proyecto">
+            <span>Ingeniería Mecatrónica</span> · Trabajo Terminal TTM-2024/2-44
+        </div>
+        <div style="margin-top: 0.8rem; font-size: 1.3rem; font-weight: 300;">
+            Sistema de Seguimiento y Localización del Tren Ligero
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- MAPA -->
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+
+        <div id="errorGlobal" class="error-message"></div>
+
+        <!-- TABLA ESTADO ACTUAL -->
+        <div>
+            <h3 class="section-title">Estado Actual de Trenes</h3>
+            <div class="table-wrapper">
+                <div id="loadingEstado" class="loading" style="display: block;">Cargando datos en tiempo real...</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tren</th>
+                            <th>Latitud</th>
+                            <th>Longitud</th>
+                            <th>Velocidad (km/h)</th>
+                            <th>Dirección</th>
+                            <th>Estado GPS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TABLA HISTORIAL -->
+        <div>
+            <h3 class="section-title">Historial Reciente (últimas 15 lecturas)</h3>
+            <div class="table-wrapper">
+                <div id="loadingHistorial" class="loading" style="display: block;">Cargando historial...</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tren</th>
+                            <th>Latitud</th>
+                            <th>Longitud</th>
+                            <th>Estado GPS</th>
+                            <th>Hora (local)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaHistorial"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- PIE DE PÁGINA CON INTEGRANTES -->
+    <footer class="footer">
+        <div class="integrantes">
+            <span class="integrante">María de los Ángeles Cruz del Angel</span>
+            <span class="integrante">Marco Antonio Ibarra Cruz</span>
+            <span class="integrante">Varush Mata Prieto</span>
+        </div>
+        <div class="copyright">
+            &copy; 2025 · Trabajo Terminal · IPN-UPIITA · Ingeniería Mecatrónica
+        </div>
+    </footer>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+        // Inicializar mapa
+        const map = L.map("map").setView([19.4326, -99.1332], 13);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        const colores = ["#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd"]; // Colores más profesionales
+        const marcadores = {};
+        const rutas = {};
+
+        function colorTren(id) { return colores[id % colores.length]; }
+
+        function mostrarError(mensaje) {
+            const errorDiv = document.getElementById('errorGlobal');
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = mensaje;
+            setTimeout(() => { errorDiv.style.display = 'none'; }, 5000);
+        }
+
+        async function actualizar() {
+            const loading = document.getElementById('loadingEstado');
+            loading.style.display = 'block';
+            try {
+                const res = await fetch("/api/estado");
+                if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
+                const trenes = await res.json();
+
+                const tbody = document.getElementById("tabla");
+                tbody.innerHTML = "";
+
+                trenes.forEach(t => {
+                    const p = t.posicion;
+                    const estado = p.gps_off_s < 35 ? "VERDE" : p.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
+                    const estadoClass = estado.toLowerCase();
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${t.id_tren}</strong></td>
+                            <td>${p.lat.toFixed(6)}</td>
+                            <td>${p.lon.toFixed(6)}</td>
+                            <td>${t.velocidad ? Number(t.velocidad).toFixed(2) : '-'}</td>
+                            <td>${t.direccion_txt}</td>
+                            <td><span class="${estadoClass}">${estado}</span></td>
+                        </tr>
+                    `;
+
+                    const punto = [p.lat, p.lon];
+                    if (!marcadores[t.id_tren]) {
+                        marcadores[t.id_tren] = L.circleMarker(punto, {
+                            radius: 8,
+                            color: colorTren(t.id_tren),
+                            fillColor: colorTren(t.id_tren),
+                            fillOpacity: 0.8,
+                            weight: 2
+                        }).addTo(map);
+                    } else {
+                        marcadores[t.id_tren].setLatLng(punto);
+                    }
+
+                    if (t.historial && t.historial.length >= 2) {
+                        const pts = t.historial.map(h => [h.lat, h.lon]);
+                        if (!rutas[t.id_tren]) {
+                            rutas[t.id_tren] = L.polyline(pts, { 
+                                color: colorTren(t.id_tren),
+                                weight: 3,
+                                opacity: 0.7
+                            }).addTo(map);
+                        } else {
+                            rutas[t.id_tren].setLatLngs(pts);
+                        }
+                    }
+                });
+                loading.style.display = 'none';
+            } catch (error) {
+                loading.style.display = 'none';
+                mostrarError('Error al cargar estado: ' + error.message);
+            }
+        }
+
+        async function actualizarHistorial() {
+            const loading = document.getElementById('loadingHistorial');
+            loading.style.display = 'block';
+            try {
+                const res = await fetch("/api/tabla");
+                if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
+                const datos = await res.json();
+
+                const tbody = document.getElementById("tablaHistorial");
+                tbody.innerHTML = "";
+
+                datos.forEach(d => {
+                    const estado = d.gps_off_s < 35 ? "VERDE" : d.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
+                    const estadoClass = estado.toLowerCase();
+                    const fecha = new Date(d.timestamp);
+                    const horaLocal = fecha.toLocaleString('es-MX', { hour12: false });
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${d.id_tren}</strong></td>
+                            <td>${d.lat.toFixed(5)}</td>
+                            <td>${d.lon.toFixed(5)}</td>
+                            <td><span class="${estadoClass}">${estado}</span></td>
+                            <td>${horaLocal}</td>
+                        </tr>
+                    `;
+                });
+                loading.style.display = 'none';
+            } catch (error) {
+                loading.style.display = 'none';
+                mostrarError('Error al cargar historial: ' + error.message);
+            }
+        }
+
+        // Inicializar y actualizar periódicamente
+        actualizar();
+        actualizarHistorial();
+        setInterval(() => {
+            actualizar();
+            actualizarHistorial();
+        }, 15000);
+    </script>
+</body>
+</html>
+
