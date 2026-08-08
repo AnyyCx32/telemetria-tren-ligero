@@ -48,16 +48,24 @@ const rutas = {
 };
 
 const estadoStatus = [
-  { source: 1, imu: 0, north: 1, rtk: 0, cal: 'I00M00', refSd: false },
-  { source: 1, imu: 1, north: 1, rtk: 1, cal: 'I10M10', refSd: false },
-  { source: 2, imu: 2, north: 0, rtk: 2, cal: 'I11M11', refSd: true },
-  { source: 2, imu: 3, north: 1, rtk: 0, cal: 'I10M10', refSd: false },
-  { source: 1, imu: 4, north: 0, rtk: 1, cal: 'I11M11', refSd: false }
+  { imu: 0, north: 1, rtk: 0, cal: 'I00M00', refSd: false },
+  { imu: 1, north: 1, rtk: 1, cal: 'I10M10', refSd: false },
+  { imu: 2, north: 0, rtk: 2, cal: 'I11M11', refSd: true },
+  { imu: 3, north: 1, rtk: 0, cal: 'I10M10', refSd: false },
+  { imu: 4, north: 0, rtk: 1, cal: 'I11M11', refSd: false }
 ];
 
 const vibraciones = [0.010, 0.018, 0.025, 0.035, 0.020, 0.014, 0.022];
 
-const tSinGpsSequence = [0, 5, 20, 40, 55, 70, 0];
+const gnssSequence = [
+  { source: 1, tSinGPS: 0 },
+  { source: 1, tSinGPS: 5 },
+  { source: 2, tSinGPS: 20 },
+  { source: 2, tSinGPS: 40 },
+  { source: 2, tSinGPS: 55 },
+  { source: 2, tSinGPS: 70 },
+  { source: 1, tSinGPS: 0 }
+];
 
 function aleatorio(min, max) {
   return Math.random() * (max - min) + min;
@@ -81,9 +89,9 @@ function generarPunto(base) {
   const velocidad = Math.max(0, Math.min(45, base.velocidad + aleatorio(-3, 3)));
   const rumbo = (base.direccion + aleatorio(-7, 7) + 360) % 360;
   const vibracion = vibraciones[index % vibraciones.length];
-  const tSinGPS = tSinGpsSequence[index % tSinGpsSequence.length];
+  const gnss = gnssSequence[index % gnssSequence.length];
   const statusIndex = index % estadoStatus.length;
-  const status = crearStatus(estadoStatus[statusIndex], rumbo);
+  const status = crearStatus({ ...estadoStatus[statusIndex], source: gnss.source }, rumbo);
   const entryId = BASE_TIME + index + base.tren * 100 + base.nodo * 10;
 
   return {
@@ -92,7 +100,7 @@ function generarPunto(base) {
     field2: lon.toFixed(6),
     field3: velocidad.toFixed(2),
     field4: rumbo.toFixed(1),
-    field5: tSinGPS,
+    field5: gnss.tSinGPS,
     field6: base.tren,
     field7: base.nodo,
     field8: vibracion.toFixed(3),
