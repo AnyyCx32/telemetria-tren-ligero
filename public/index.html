@@ -240,6 +240,21 @@
         .loading { color: #6A0032; background: #f0e6ec; }
         .error-message { color: #b71c1c; background: #ffebee; display: none; }
 
+        .test-mode-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            border-radius: 999px;
+            padding: 0.45rem 0.9rem;
+            font-size: 0.88rem;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-top: 1rem;
+        }
+
         /* Footer */
         .footer {
             background-color: #6A0032;
@@ -298,6 +313,9 @@
         <div class="header-right">
             <h3>Trabajo Terminal TTM-2024/2-44</h3>
             <div class="project">Sistema de Seguimiento y Localización del Tren Ligero</div>
+        </div>
+        <div id="testModeBadge" class="test-mode-badge" style="display:none;">
+            <i class="fas fa-flask"></i> MODO DE PRUEBA — DATOS SIMULADOS
         </div>
     </header>
 
@@ -562,7 +580,20 @@
             }
         }
 
+        async function cargarConfiguracion() {
+            try {
+                const res = await fetch('/api/config');
+                if (!res.ok) return;
+                const config = await res.json();
+                const badge = document.getElementById('testModeBadge');
+                badge.style.display = config.testMode ? 'inline-flex' : 'none';
+            } catch (error) {
+                console.warn('No se pudo cargar /api/config', error);
+            }
+        }
+
         // Inicialización
+        cargarConfiguracion();
         actualizarEstado();
         cargarOpcionesTrenes();
         actualizarHistorial();

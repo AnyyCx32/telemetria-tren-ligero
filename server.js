@@ -9,6 +9,8 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const TEST_MODE = process.env.TEST_MODE === "true";
+const { generarMockTelemetry } = require("./test-data/mockTelemetry");
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, "public")));
@@ -27,6 +29,7 @@ while (process.env[`CANAL_${i}_ID`] && process.env[`CANAL_${i}_KEY`]) {
   i++;
 }
 console.log(`📡 Configurados ${canales.length} canales`);
+if (TEST_MODE) console.log("⚠️ MODO DE PRUEBA activo: usando datos simulados locales");
 
 const FUENTES = {
   0: "Sin posición",
@@ -65,6 +68,7 @@ const MAX = 20;
 let historialPorNodo = {};
 let historialGlobal = [];
 let estadoNodos = [];
+let dedupTestPerformed = false;
 
 // =================== UTILIDADES ===================
 
@@ -133,6 +137,36 @@ function parseStatus(status) {
   return result;
 }
 
+function normalizarFeed(f) {
+  const ahora = Date.now();
+  const lat = parseFloat(f.field1);
+  const lon = parseFloat(f.field2);
+  const rapidez = f.field3 != null ? parseFloat(f.field3) : null;
+  const rumbo = f.field4 != null ? parseFloat(f.field4) : null;
+  const tSinGPS = f.field5 != null ? parseFloat(f.field5) : null;
+  const id_tren = f.field6 != null ? parseInt(f.field6, 10) : null;
+  const id_nodo = f.field7 != null ? parseInt(f.field7, 10) : null;
+  const vibracion = f.field8 != null ? parseFloat(f.field8) : null;
+  const timestamp = f.created_at || new Date().toISOString();
+  const ts = Date.parse(timestamp);
+
+  return {
+    entryId: f.entry_id || null,
+    lat,
+    lon,
+    rapidez: Number.isFinite(rapidez) ? rapidez : null,
+    rumbo: Number.isFinite(rumbo) ? rumbo : null,
+    tSinGPS: Number.isFinite(tSinGPS) ? tSinGPS : null,
+    id_tren: Number.isInteger(id_tren) ? id_tren : null,
+    id_nodo: Number.isInteger(id_nodo) ? id_nodo : null,
+    vibracion: Number.isFinite(vibracion) ? vibracion : null,
+    statusRaw: f.status || null,
+    status: parseStatus(f.status || ""),
+    timestamp,
+    timestampMs: ts
+  };
+}
+
 function agregarAHistorial(key, punto) {
   if (!historialPorNodo[key]) historialPorNodo[key] = [];
   const ruta = historialPorNodo[key];
@@ -155,6 +189,23 @@ function agregarAHistorial(key, punto) {
   return true;
 }
 
+function validarDeduplicacion() {
+  const keys = Object.keys(historialPorNodo);
+  if (!keys.length) return;
+  const key = keys[0];
+  const ruta = historialPorNodo[key];
+  const ultimo = ruta[ruta.length - 1];
+  if (!ultimo) return;
+
+  const duplicado = { ...ultimo };
+  const noCrece = !agregarAHistorial(key, duplicado);
+
+  const nuevo = { ...ultimo, entryId: (Number(ultimo.entryId) || 0) + 9999 };
+  const siCrece = agregarAHistorial(key, nuevo);
+
+  console.log(`🧪 Prueba de deduplicación en modo TEST: same entry_id -> ${noCrece ? "no crece" : "crece"}; mismo contenido nuevo entry_id -> ${siCrece ? "crece" : "no crece"}`);
+}
+
 // =================== THINGSPEAK ===================
 
 async function leerCanal(canal) {
@@ -167,34 +218,7 @@ async function leerCanal(canal) {
 
     const ahora = Date.now();
     return js.feeds
-      .map(f => {
-        const lat = parseFloat(f.field1);
-        const lon = parseFloat(f.field2);
-        const rapidez = f.field3 != null ? parseFloat(f.field3) : null;
-        const rumbo = f.field4 != null ? parseFloat(f.field4) : null;
-        const tSinGPS = f.field5 != null ? parseFloat(f.field5) : null;
-        const id_tren = f.field6 != null ? parseInt(f.field6, 10) : null;
-        const id_nodo = f.field7 != null ? parseInt(f.field7, 10) : null;
-        const vibracion = f.field8 != null ? parseFloat(f.field8) : null;
-        const timestamp = f.created_at;
-        const ts = Date.parse(timestamp);
-
-        return {
-          entryId: f.entry_id || null,
-          lat,
-          lon,
-          rapidez: Number.isFinite(rapidez) ? rapidez : null,
-          rumbo: Number.isFinite(rumbo) ? rumbo : null,
-          tSinGPS: Number.isFinite(tSinGPS) ? tSinGPS : null,
-          id_tren: Number.isInteger(id_tren) ? id_tren : null,
-          id_nodo: Number.isInteger(id_nodo) ? id_nodo : null,
-          vibracion: Number.isFinite(vibracion) ? vibracion : null,
-          statusRaw: f.status || null,
-          status: parseStatus(f.status || ""),
-          timestamp,
-          timestampMs: ts
-        };
-      })
+      .map(normalizarFeed)
       .filter(f => {
         if (f.lat === null || f.lon === null || f.id_tren === null || f.id_nodo === null || f.tSinGPS === null) return false;
         if (!Number.isFinite(f.lat) || !Number.isFinite(f.lon) || !Number.isFinite(f.tSinGPS)) return false;
@@ -212,9 +236,10 @@ async function leerCanal(canal) {
 
 async function precargarHistorial() {
   console.log("⏳ Precargando historial...");
-  const promesas = canales.map(c => leerCanal(c));
-  const resultados = await Promise.all(promesas);
-  const datos = resultados.flat();
+  const rawDatos = TEST_MODE
+    ? generarMockTelemetry()
+    : (await Promise.all(canales.map(c => leerCanal(c)))).flat();
+  const datos = rawDatos.map(normalizarFeed).filter(f => f.id_tren !== null && f.id_nodo !== null);
 
   const porNodo = {};
   datos.forEach(d => {
@@ -303,11 +328,19 @@ function procesar(datos) {
 // =================== CICLO ===================
 
 async function actualizar() {
-  const promesas = canales.map(c => leerCanal(c));
-  const resultados = await Promise.all(promesas);
-  const datos = resultados.flat();
+  const rawDatos = TEST_MODE
+    ? generarMockTelemetry()
+    : (await Promise.all(canales.map(c => leerCanal(c)))).flat();
+  const datos = rawDatos.map(normalizarFeed).filter(f => f.id_tren !== null && f.id_nodo !== null);
+
   estadoNodos = procesar(datos);
-  console.log(`✔ Backend actualizado: ${estadoNodos.length} nodos activos`);
+
+  if (TEST_MODE && !dedupTestPerformed) {
+    validarDeduplicacion();
+    dedupTestPerformed = true;
+  }
+
+  console.log(`✔ Backend actualizado: ${estadoNodos.length} nodos activos${TEST_MODE ? " (modo prueba)" : ""}`);
 }
 
 async function iniciarCiclo() {
@@ -373,6 +406,10 @@ app.get("/api/tabla", (req, res) => {
     timestamp: h.timestamp
   }));
   res.json(respuesta);
+});
+
+app.get("/api/config", (req, res) => {
+  res.json({ testMode: TEST_MODE });
 });
 
 // =================== ARRANQUE ===================
