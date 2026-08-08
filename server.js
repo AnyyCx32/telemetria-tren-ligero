@@ -28,9 +28,29 @@ while (process.env[`CANAL_${i}_ID`] && process.env[`CANAL_${i}_KEY`]) {
 }
 console.log(`📡 Configurados ${canales.length} canales`);
 
-const DIRECCIONES = {
-  0: "Taxqueña",
-  1: "Xochimilco"
+const FUENTES = {
+  0: "Sin posición",
+  1: "GNSS + ENU",
+  2: "Navegación por estima"
+};
+
+const IMU_ESTADOS = {
+  0: "Desconocido",
+  1: "Correcta",
+  2: "Deriva ICM-20948",
+  3: "Desacuerdo",
+  4: "Falla del sensor"
+};
+
+const RTK_ESTADOS = {
+  0: "Sin corrección",
+  1: "Flotante",
+  2: "Fija"
+};
+
+const NORTH_ESTADOS = {
+  0: "No válida",
+  1: "Válida"
 };
 
 const MAX_EDAD_HORAS = 5;
@@ -42,9 +62,9 @@ const MAX = 20;
 
 // =================== ESTADO ===================
 
-let historialTrenes = {};
+let historialPorNodo = {};
 let historialGlobal = [];
-let estadoTrenes = [];
+let estadoNodos = [];
 
 // =================== UTILIDADES ===================
 
@@ -68,15 +88,71 @@ function estadoGPS(seg) {
   return "rojo";
 }
 
-function agregarAHistorial(id_tren, punto) {
-  if (!historialTrenes[id_tren]) historialTrenes[id_tren] = [];
-  historialTrenes[id_tren].push(punto);
-  if (historialTrenes[id_tren].length > HISTORIAL_MAX_RUTA)
-    historialTrenes[id_tren].shift();
+function nodeKey(id_tren, id_nodo) {
+  return `${id_tren}:${id_nodo}`;
+}
 
-  historialGlobal.push({ id_tren, ...punto });
-  if (historialGlobal.length > TABLA_MAX)
-    historialGlobal.shift();
+function nodeLabel(id_nodo) {
+  if (id_nodo === 0) return "A";
+  if (id_nodo === 1) return "B";
+  return String(id_nodo);
+}
+
+function parseStatus(status) {
+  const result = {
+    source: null,
+    imuHealth: null,
+    heading: null,
+    northValid: null,
+    rtk: null,
+    refSd: false,
+    icmFloorCal: null,
+    icmAxisCal: null,
+    mpuFloorCal: null,
+    mpuAxisCal: null
+  };
+
+  if (!status || typeof status !== "string") return result;
+
+  result.refSd = /_REFSD/.test(status);
+
+  const mainRegex = /SRC_(\d+)_IMU_(\d+)_HDG_(\d+)_NORTH_(\d+)_RTK_(\d+)(?:_REFSD)?_CAL_I(\d)(\d)M(\d)(\d)/;
+  const match = status.match(mainRegex);
+  if (!match) return result;
+
+  result.source = parseInt(match[1], 10);
+  result.imuHealth = parseInt(match[2], 10);
+  result.heading = parseInt(match[3], 10);
+  result.northValid = parseInt(match[4], 10);
+  result.rtk = parseInt(match[5], 10);
+  result.icmFloorCal = parseInt(match[6], 10);
+  result.icmAxisCal = parseInt(match[7], 10);
+  result.mpuFloorCal = parseInt(match[8], 10);
+  result.mpuAxisCal = parseInt(match[9], 10);
+
+  return result;
+}
+
+function agregarAHistorial(key, punto) {
+  if (!historialPorNodo[key]) historialPorNodo[key] = [];
+  const ruta = historialPorNodo[key];
+  const ultimo = ruta[ruta.length - 1];
+
+  const mismoRegistro = ultimo && (
+    (punto.entryId && ultimo.entryId === punto.entryId) ||
+    (!punto.entryId && ultimo.timestamp === punto.timestamp) ||
+    (!punto.entryId && ultimo.lat === punto.lat && ultimo.lon === punto.lon && ultimo.rapidez === punto.rapidez && ultimo.rumbo === punto.rumbo && ultimo.tSinGPS === punto.tSinGPS)
+  );
+
+  if (mismoRegistro) return false;
+
+  ruta.push(punto);
+  if (ruta.length > HISTORIAL_MAX_RUTA) ruta.shift();
+
+  historialGlobal.push({ id_tren: punto.id_tren, id_nodo: punto.id_nodo, ...punto });
+  if (historialGlobal.length > TABLA_MAX) historialGlobal.shift();
+
+  return true;
 }
 
 // =================== THINGSPEAK ===================
@@ -91,24 +167,41 @@ async function leerCanal(canal) {
 
     const ahora = Date.now();
     return js.feeds
-      .filter(f => {
-        if (!f.field1 || !f.field2 || !f.field6) return false;
+      .map(f => {
         const lat = parseFloat(f.field1);
         const lon = parseFloat(f.field2);
-        const gps_off = parseFloat(f.field5);
-        if (isNaN(lat) || isNaN(lon) || isNaN(gps_off)) return false;
-        const t = Date.parse(f.created_at);
-        return !isNaN(t) && (ahora - t) <= MAX_EDAD_MS;
+        const rapidez = f.field3 != null ? parseFloat(f.field3) : null;
+        const rumbo = f.field4 != null ? parseFloat(f.field4) : null;
+        const tSinGPS = f.field5 != null ? parseFloat(f.field5) : null;
+        const id_tren = f.field6 != null ? parseInt(f.field6, 10) : null;
+        const id_nodo = f.field7 != null ? parseInt(f.field7, 10) : null;
+        const vibracion = f.field8 != null ? parseFloat(f.field8) : null;
+        const timestamp = f.created_at;
+        const ts = Date.parse(timestamp);
+
+        return {
+          entryId: f.entry_id || null,
+          lat,
+          lon,
+          rapidez: Number.isFinite(rapidez) ? rapidez : null,
+          rumbo: Number.isFinite(rumbo) ? rumbo : null,
+          tSinGPS: Number.isFinite(tSinGPS) ? tSinGPS : null,
+          id_tren: Number.isInteger(id_tren) ? id_tren : null,
+          id_nodo: Number.isInteger(id_nodo) ? id_nodo : null,
+          vibracion: Number.isFinite(vibracion) ? vibracion : null,
+          statusRaw: f.status || null,
+          status: parseStatus(f.status || ""),
+          timestamp,
+          timestampMs: ts
+        };
       })
-      .map(f => ({
-        lat: parseFloat(f.field1),
-        lon: parseFloat(f.field2),
-        velocidad: f.field3 ? parseFloat(f.field3) : null,
-        direccion: parseInt(f.field4, 10),
-        gps_off_s: parseFloat(f.field5),
-        id_tren: parseInt(f.field6, 10),
-        timestamp: f.created_at
-      }));
+      .filter(f => {
+        if (f.lat === null || f.lon === null || f.id_tren === null || f.id_nodo === null || f.tSinGPS === null) return false;
+        if (!Number.isFinite(f.lat) || !Number.isFinite(f.lon) || !Number.isFinite(f.tSinGPS)) return false;
+        if (f.rumbo === null || !Number.isFinite(f.rumbo)) return false;
+        if (isNaN(f.timestampMs)) return false;
+        return (ahora - f.timestampMs) <= MAX_EDAD_MS;
+      });
   } catch (error) {
     console.error(`❌ Error leyendo canal ${canal.id}:`, error.message);
     return [];
@@ -123,24 +216,18 @@ async function precargarHistorial() {
   const resultados = await Promise.all(promesas);
   const datos = resultados.flat();
 
-  const porTren = {};
+  const porNodo = {};
   datos.forEach(d => {
-    if (!porTren[d.id_tren]) porTren[d.id_tren] = [];
-    porTren[d.id_tren].push(d);
+    const key = nodeKey(d.id_tren, d.id_nodo);
+    if (!porNodo[key]) porNodo[key] = [];
+    porNodo[key].push(d);
   });
 
-  for (const id in porTren) {
-    porTren[id]
-      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  for (const key in porNodo) {
+    porNodo[key]
+      .sort((a, b) => a.timestampMs - b.timestampMs)
       .slice(-HISTORIAL_PRELOAD)
-      .forEach(p => {
-        agregarAHistorial(p.id_tren, {
-          lat: p.lat,
-          lon: p.lon,
-          gps_off_s: p.gps_off_s,
-          timestamp: p.timestamp
-        });
-      });
+      .forEach(p => agregarAHistorial(key, p));
   }
   console.log("✅ Precarga lista");
 }
@@ -148,38 +235,68 @@ async function precargarHistorial() {
 // =================== PROCESAMIENTO ===================
 
 function procesar(datos) {
-  const trenes = {};
+  const nodos = {};
   const salida = [];
 
   datos.forEach(d => {
-    if (!trenes[d.id_tren]) {
-      trenes[d.id_tren] = { id_tren: d.id_tren, direccion: d.direccion, puntos: [] };
+    const key = nodeKey(d.id_tren, d.id_nodo);
+    if (!nodos[key]) {
+      nodos[key] = { id_tren: d.id_tren, id_nodo: d.id_nodo, puntos: [] };
     }
-    trenes[d.id_tren].puntos.push(d);
+    nodos[key].puntos.push(d);
   });
 
-  for (const id in trenes) {
-    const t = trenes[id];
-    const puntosOrdenados = t.puntos.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+  for (const key in nodos) {
+    const nodo = nodos[key];
+    const puntosOrdenados = nodo.puntos.sort((a, b) => b.timestampMs - a.timestampMs);
     const activo = puntosOrdenados[0];
     if (!activo) continue;
 
-    agregarAHistorial(id, {
-      lat: activo.lat,
-      lon: activo.lon,
-      gps_off_s: activo.gps_off_s,
-      timestamp: activo.timestamp
-    });
+    agregarAHistorial(key, activo);
 
     salida.push({
-      id_tren: id,
-      velocidad: activo.velocidad,
-      direccion_txt: DIRECCIONES[activo.direccion] || "Desconocida",
-      posicion: { lat: activo.lat, lon: activo.lon, gps_off_s: activo.gps_off_s },
-      estado_gps: estadoGPS(activo.gps_off_s),
-      historial: historialTrenes[id] || []
+      id_tren: activo.id_tren,
+      id_nodo: activo.id_nodo,
+      nodo_txt: nodeLabel(activo.id_nodo),
+      latitud: activo.lat,
+      longitud: activo.lon,
+      lat: activo.lat,
+      lon: activo.lon,
+      rapidez: activo.rapidez,
+      velocidad: activo.rapidez,
+      rumbo: activo.rumbo,
+      tSinGPS: activo.tSinGPS,
+      gps_off_s: activo.tSinGPS,
+      vibracion: activo.vibracion,
+      source: activo.status.source,
+      source_txt: FUENTES[activo.status.source] || null,
+      imuHealth: activo.status.imuHealth,
+      imuHealth_txt: IMU_ESTADOS[activo.status.imuHealth] || null,
+      rtk: activo.status.rtk,
+      rtk_txt: RTK_ESTADOS[activo.status.rtk] || null,
+      northValid: activo.status.northValid,
+      northValid_txt: NORTH_ESTADOS[activo.status.northValid] || null,
+      refSd: activo.status.refSd,
+      calibraciones: {
+        icmFloorCal: activo.status.icmFloorCal,
+        icmAxisCal: activo.status.icmAxisCal,
+        mpuFloorCal: activo.status.mpuFloorCal,
+        mpuAxisCal: activo.status.mpuAxisCal
+      },
+      statusRaw: activo.statusRaw,
+      timestamp: activo.timestamp,
+      posicion: {
+        lat: activo.lat,
+        lon: activo.lon,
+        tSinGPS: activo.tSinGPS,
+        rumbo: activo.rumbo,
+        timestamp: activo.timestamp
+      },
+      estado_gps: estadoGPS(activo.tSinGPS),
+      historial: historialPorNodo[key] || []
     });
   }
+
   return salida;
 }
 
@@ -189,8 +306,8 @@ async function actualizar() {
   const promesas = canales.map(c => leerCanal(c));
   const resultados = await Promise.all(promesas);
   const datos = resultados.flat();
-  estadoTrenes = procesar(datos);
-  console.log(`✔ Backend actualizado: ${estadoTrenes.length} trenes activos`);
+  estadoNodos = procesar(datos);
+  console.log(`✔ Backend actualizado: ${estadoNodos.length} nodos activos`);
 }
 
 async function iniciarCiclo() {
@@ -200,21 +317,63 @@ async function iniciarCiclo() {
 
 // =================== API ===================
 
-app.get("/api/estado", (req, res) => res.json(estadoTrenes));
+app.get("/api/estado", (req, res) => res.json(estadoNodos));
 
 app.get("/api/historial", (req, res) => {
   let { limit = 15, tren } = req.query;
-  limit = Math.min(parseInt(limit) || 15, 100);
+  limit = Math.min(parseInt(limit, 10) || 15, 100);
   let historial = historialGlobal;
   if (tren && tren !== 'todos') {
-    const idTren = parseInt(tren);
+    const idTren = parseInt(tren, 10);
     if (!isNaN(idTren)) historial = historial.filter(h => h.id_tren === idTren);
   }
-  res.json([...historial].reverse().slice(0, limit));
+  const respuesta = [...historial].reverse().slice(0, limit).map(h => ({
+    id_tren: h.id_tren,
+    id_nodo: h.id_nodo,
+    nodo_txt: nodeLabel(h.id_nodo),
+    latitud: h.lat,
+    longitud: h.lon,
+    lat: h.lat,
+    lon: h.lon,
+    rapidez: h.rapidez,
+    velocidad: h.rapidez,
+    rumbo: h.rumbo,
+    tSinGPS: h.tSinGPS,
+    gps_off_s: h.tSinGPS,
+    vibracion: h.vibracion,
+    source: h.status?.source ?? null,
+    source_txt: h.status?.source != null ? FUENTES[h.status.source] : null,
+    imuHealth: h.status?.imuHealth ?? null,
+    imuHealth_txt: h.status?.imuHealth != null ? IMU_ESTADOS[h.status.imuHealth] : null,
+    timestamp: h.timestamp
+  }));
+  res.json(respuesta);
 });
 
 // Compatibilidad
-app.get("/api/tabla", (req, res) => res.json([...historialGlobal].reverse()));
+app.get("/api/tabla", (req, res) => {
+  const respuesta = [...historialGlobal].reverse().map(h => ({
+    id_tren: h.id_tren,
+    id_nodo: h.id_nodo,
+    nodo_txt: nodeLabel(h.id_nodo),
+    latitud: h.lat,
+    longitud: h.lon,
+    lat: h.lat,
+    lon: h.lon,
+    rapidez: h.rapidez,
+    velocidad: h.rapidez,
+    rumbo: h.rumbo,
+    tSinGPS: h.tSinGPS,
+    gps_off_s: h.tSinGPS,
+    vibracion: h.vibracion,
+    source: h.status?.source ?? null,
+    source_txt: h.status?.source != null ? FUENTES[h.status.source] : null,
+    imuHealth: h.status?.imuHealth ?? null,
+    imuHealth_txt: h.status?.imuHealth != null ? IMU_ESTADOS[h.status.imuHealth] : null,
+    timestamp: h.timestamp
+  }));
+  res.json(respuesta);
+});
 
 // =================== ARRANQUE ===================
 

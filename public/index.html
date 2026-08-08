@@ -84,6 +84,29 @@
             opacity: 0.9;
         }
 
+        .marker-label {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.95rem;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.9);
+        }
+
+        .marker-label-a {
+            background-color: #6A0032;
+            color: white;
+        }
+
+        .marker-label-b {
+            background-color: white;
+            color: #6A0032;
+            border: 2px solid #6A0032;
+        }
+
         /* Contenido principal */
         .main-content {
             flex: 1;
@@ -292,11 +315,15 @@
                 <thead>
                     <tr>
                         <th>Tren</th>
+                        <th>Nodo</th>
                         <th>Latitud</th>
                         <th>Longitud</th>
-                        <th>Velocidad (km/h)</th>
-                        <th>Dirección</th>
-                        <th>Estado GPS</th>
+                        <th>Velocidad</th>
+                        <th>Rumbo</th>
+                        <th>GNSS</th>
+                        <th>Fuente</th>
+                        <th>IMU</th>
+                        <th>Actualizado</th>
                     </tr>
                 </thead>
                 <tbody id="tabla"></tbody>
@@ -333,9 +360,14 @@
                 <thead>
                     <tr>
                         <th>Tren</th>
+                        <th>Nodo</th>
                         <th>Latitud</th>
                         <th>Longitud</th>
+                        <th>Velocidad</th>
+                        <th>Rumbo</th>
                         <th>Estado GPS</th>
+                        <th>Fuente</th>
+                        <th>IMU</th>
                         <th>Hora (local)</th>
                     </tr>
                 </thead>
@@ -408,42 +440,79 @@
                 const tbody = document.getElementById("tabla");
                 tbody.innerHTML = "";
 
+                const bounds = [];
+
                 trenes.forEach(t => {
                     const p = t.posicion;
                     const estado = p.gps_off_s < 35 ? "VERDE" : p.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
+                    const fecha = new Date(t.timestamp).toLocaleString();
+                    const key = `${t.id_tren}:${t.id_nodo}`;
+                    const color = colorTren(t.id_tren);
+                    const letraNodo = t.nodo_txt || "?";
+                    const nodeClass = t.id_nodo === 1 ? "marker-label-b" : "marker-label-a";
 
                     tbody.innerHTML += `
                         <tr>
                             <td><strong>${t.id_tren}</strong></td>
+                            <td>${letraNodo}</td>
                             <td>${p.lat.toFixed(6)}</td>
                             <td>${p.lon.toFixed(6)}</td>
-                            <td>${t.velocidad ? t.velocidad.toFixed(2) : "-"}</td>
-                            <td>${t.direccion_txt}</td>
+                            <td>${t.velocidad != null ? t.velocidad.toFixed(2) : "-"}</td>
+                            <td>${t.rumbo != null ? t.rumbo.toFixed(1) + '°' : '-'}</td>
                             <td><span class="${estado.toLowerCase()}">${estado}</span></td>
+                            <td>${t.source_txt || '-'}</td>
+                            <td>${t.imuHealth_txt || '-'}</td>
+                            <td>${fecha}</td>
                         </tr>
                     `;
 
-                    const punto = [p.lat, p.lon];
-                    if (!marcadores[t.id_tren]) {
-                        marcadores[t.id_tren] = L.circleMarker(punto, {
-                            radius: 8,
-                            color: colorTren(t.id_tren),
-                            fillColor: colorTren(t.id_tren),
-                            fillOpacity: 0.8
-                        }).addTo(map);
+                    bounds.push(punto = [p.lat, p.lon]);
+
+                    const iconHtml = `<div class="marker-label ${nodeClass}" style="border-color:${color}; ${t.id_nodo === 0 ? 'background-color:' + color + '; color: white;' : 'color:' + color + ';'}">${letraNodo}</div>`;
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
+
+                    if (!marcadores[key]) {
+                        marcadores[key] = L.marker(punto, { icon }).addTo(map);
                     } else {
-                        marcadores[t.id_tren].setLatLng(punto);
+                        marcadores[key].setIcon(icon);
+                        marcadores[key].setLatLng(punto);
                     }
+
+                    const popup = `
+                        <div style="font-size:0.95rem; line-height:1.4;">
+                          <strong>Tren ${t.id_tren} - Nodo ${letraNodo}</strong><br>
+                          Latitud: ${p.lat.toFixed(6)}<br>
+                          Longitud: ${p.lon.toFixed(6)}<br>
+                          Velocidad: ${t.velocidad != null ? t.velocidad.toFixed(2) + ' km/h' : '-'}<br>
+                          Rumbo: ${t.rumbo != null ? t.rumbo.toFixed(1) + '°' : '-'}<br>
+                          Fuente: ${t.source_txt || '-'}<br>
+                          Tiempo sin GNSS: ${t.tSinGPS != null ? t.tSinGPS + ' s' : '-'}<br>
+                          IMU: ${t.imuHealth_txt || '-'}<br>
+                          Vibración: ${t.vibracion != null ? t.vibracion.toFixed(3) + ' g' : '-'}<br>
+                          RTK: ${t.rtk_txt || '-'}<br>
+                          Norte: ${t.northValid_txt || '-'}<br>
+                          Calibración ICM: ${t.calibraciones?.icmFloorCal != null ? t.calibraciones.icmFloorCal + '/' + t.calibraciones.icmAxisCal : '-'}<br>
+                          Calibración MPU: ${t.calibraciones?.mpuFloorCal != null ? t.calibraciones.mpuFloorCal + '/' + t.calibraciones.mpuAxisCal : '-'}<br>
+                          Actualizado: ${fecha}
+                        </div>
+                    `;
+                    marcadores[key].bindPopup(popup);
 
                     if (t.historial && t.historial.length >= 2) {
                         const pts = t.historial.map(h => [h.lat, h.lon]);
-                        if (!rutas[t.id_tren]) {
-                            rutas[t.id_tren] = L.polyline(pts, { color: colorTren(t.id_tren), weight: 3 }).addTo(map);
+                        if (!rutas[key]) {
+                            rutas[key] = L.polyline(pts, { color: color, weight: 3 }).addTo(map);
                         } else {
-                            rutas[t.id_tren].setLatLngs(pts);
+                            rutas[key].setLatLngs(pts);
                         }
                     }
                 });
+
+                if (bounds.length > 0) {
+                    const group = L.featureGroup(Object.values(marcadores));
+                    map.fitBounds(group.getBounds().pad(0.2));
+                }
+
                 loading.style.display = 'none';
             } catch (error) {
                 loading.style.display = 'none';
@@ -469,13 +538,19 @@
                 datos.forEach(d => {
                     const estado = d.gps_off_s < 35 ? "VERDE" : d.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
                     const fecha = new Date(d.timestamp);
-                    const horaLocal = fecha.toLocaleString(); // Puedes ajustar formato si quieres
+                    const horaLocal = fecha.toLocaleString();
+                    const nodo = d.nodo_txt || (d.id_nodo != null ? String(d.id_nodo) : "-");
                     tbody.innerHTML += `
                         <tr>
                             <td>${d.id_tren}</td>
-                            <td>${d.lat.toFixed(5)}</td>
-                            <td>${d.lon.toFixed(5)}</td>
+                            <td>${nodo}</td>
+                            <td>${d.latitud != null ? d.latitud.toFixed(6) : '-'}</td>
+                            <td>${d.longitud != null ? d.longitud.toFixed(6) : '-'}</td>
+                            <td>${d.rapidez != null ? d.rapidez.toFixed(2) : '-'}</td>
+                            <td>${d.rumbo != null ? d.rumbo.toFixed(1) + '°' : '-'}</td>
                             <td><span class="${estado.toLowerCase()}">${estado}</span></td>
+                            <td>${d.source_txt || '-'}</td>
+                            <td>${d.imuHealth_txt || '-'}</td>
                             <td>${horaLocal}</td>
                         </tr>
                     `;
