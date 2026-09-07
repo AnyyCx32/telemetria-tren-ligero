@@ -232,14 +232,25 @@ async function leerCanal(canal) {
   }
 }
 
+// =================== ORIGEN DE DATOS ===================
+
+// leerCanal() ya devuelve feeds normalizados; solo el mock entrega feeds crudos
+// de ThingSpeak, asi que normalizarFeed se aplica unicamente en modo prueba.
+async function obtenerDatos() {
+  if (TEST_MODE) {
+    return generarMockTelemetry()
+      .map(normalizarFeed)
+      .filter(f => f.id_tren !== null && f.id_nodo !== null);
+  }
+  const lecturas = await Promise.all(canales.map(c => leerCanal(c)));
+  return lecturas.flat().filter(f => f.id_tren !== null && f.id_nodo !== null);
+}
+
 // =================== PRECARGA ===================
 
 async function precargarHistorial() {
   console.log("⏳ Precargando historial...");
-  const rawDatos = TEST_MODE
-    ? generarMockTelemetry()
-    : (await Promise.all(canales.map(c => leerCanal(c)))).flat();
-  const datos = rawDatos.map(normalizarFeed).filter(f => f.id_tren !== null && f.id_nodo !== null);
+  const datos = await obtenerDatos();
 
   const porNodo = {};
   datos.forEach(d => {
@@ -328,10 +339,7 @@ function procesar(datos) {
 // =================== CICLO ===================
 
 async function actualizar() {
-  const rawDatos = TEST_MODE
-    ? generarMockTelemetry()
-    : (await Promise.all(canales.map(c => leerCanal(c)))).flat();
-  const datos = rawDatos.map(normalizarFeed).filter(f => f.id_tren !== null && f.id_nodo !== null);
+  const datos = await obtenerDatos();
 
   estadoNodos = procesar(datos);
 
