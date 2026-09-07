@@ -58,7 +58,8 @@ const NORTH_ESTADOS = {
 
 const MAX_EDAD_HORAS = 5;
 const MAX_EDAD_MS = MAX_EDAD_HORAS * 60 * 60 * 1000;
-const HISTORIAL_PRELOAD = 5;
+const HISTORIAL_PRELOAD = 200;   // registros por nodo que se cargan al arrancar
+const MAX_PRELOAD = 200;         // feeds pedidos a ThingSpeak en la precarga
 const HISTORIAL_MAX_RUTA = 15;
 const TABLA_MAX = 500;
 const MAX = 20;
@@ -208,9 +209,9 @@ function validarDeduplicacion() {
 
 // =================== THINGSPEAK ===================
 
-async function leerCanal(canal) {
+async function leerCanal(canal, resultados = MAX) {
   try {
-    const url = `https://api.thingspeak.com/channels/${canal.id}/feeds.json?api_key=${canal.readKey}&results=${MAX}`;
+    const url = `https://api.thingspeak.com/channels/${canal.id}/feeds.json?api_key=${canal.readKey}&results=${resultados}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const js = await res.json();
@@ -236,13 +237,13 @@ async function leerCanal(canal) {
 
 // leerCanal() ya devuelve feeds normalizados; solo el mock entrega feeds crudos
 // de ThingSpeak, asi que normalizarFeed se aplica unicamente en modo prueba.
-async function obtenerDatos() {
+async function obtenerDatos(resultados = MAX) {
   if (TEST_MODE) {
     return generarMockTelemetry()
       .map(normalizarFeed)
       .filter(f => f.id_tren !== null && f.id_nodo !== null);
   }
-  const lecturas = await Promise.all(canales.map(c => leerCanal(c)));
+  const lecturas = await Promise.all(canales.map(c => leerCanal(c, resultados)));
   return lecturas.flat().filter(f => f.id_tren !== null && f.id_nodo !== null);
 }
 
@@ -250,7 +251,7 @@ async function obtenerDatos() {
 
 async function precargarHistorial() {
   console.log("⏳ Precargando historial...");
-  const datos = await obtenerDatos();
+  const datos = await obtenerDatos(MAX_PRELOAD);
 
   const porNodo = {};
   datos.forEach(d => {
@@ -265,7 +266,7 @@ async function precargarHistorial() {
       .slice(-HISTORIAL_PRELOAD)
       .forEach(p => agregarAHistorial(key, p));
   }
-  console.log("✅ Precarga lista");
+  console.log(`✅ Precarga lista: ${historialGlobal.length} registros en la tabla`);
 }
 
 // =================== PROCESAMIENTO ===================
