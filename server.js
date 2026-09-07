@@ -266,7 +266,11 @@ async function precargarHistorial() {
       .slice(-HISTORIAL_PRELOAD)
       .forEach(p => agregarAHistorial(key, p));
   }
+  const rutas = Object.keys(historialPorNodo)
+    .map(k => `${k} -> ${historialPorNodo[k].length}/${HISTORIAL_MAX_RUTA} pts`)
+    .join(", ");
   console.log(`✅ Precarga lista: ${historialGlobal.length} registros en la tabla`);
+  console.log(`🛰️ Rutas restauradas desde ThingSpeak (tren:nodo): ${rutas || "ninguna"}`);
 }
 
 // =================== PROCESAMIENTO ===================
