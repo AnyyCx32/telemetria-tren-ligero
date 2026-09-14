@@ -121,13 +121,17 @@ function parseStatus(status) {
 
   result.refSd = /_REFSD/.test(status);
 
-  const mainRegex = /SRC_(\d+)_IMU_(\d+)_HDG_(\d+)_NORTH_(\d+)_RTK_(\d+)(?:_REFSD)?_CAL_I(\d)(\d)M(\d)(\d)/;
+  // El rumbo llega como -1 mientras el nodo no ha aprendido la referencia de
+  // norte, lo que ocurre durante toda la fase estatica. Si el patron no acepta
+  // el signo no coincide nada, y se pierde el bloque completo, no solo el rumbo.
+  const mainRegex = /SRC_(\d+)_IMU_(\d+)_HDG_(-?\d+)_NORTH_(\d+)_RTK_(\d+)(?:_REFSD)?_CAL_I(\d)(\d)M(\d)(\d)/;
   const match = status.match(mainRegex);
   if (!match) return result;
 
   result.source = parseInt(match[1], 10);
   result.imuHealth = parseInt(match[2], 10);
-  result.heading = parseInt(match[3], 10);
+  const heading = parseInt(match[3], 10);
+  result.heading = heading >= 0 ? heading : null;   // -1 significa desconocido
   result.northValid = parseInt(match[4], 10);
   result.rtk = parseInt(match[5], 10);
   result.icmFloorCal = parseInt(match[6], 10);
@@ -143,7 +147,10 @@ function normalizarFeed(f) {
   const lat = parseFloat(f.field1);
   const lon = parseFloat(f.field2);
   const rapidez = f.field3 != null ? parseFloat(f.field3) : null;
-  const rumbo = f.field4 != null ? parseFloat(f.field4) : null;
+  // field4 trae el rumbo en grados, y -1 cuando todavia no se conoce. Se
+  // normaliza a null para que la interfaz muestre un guion en lugar de -1.0 grados.
+  const rumboCrudo = f.field4 != null ? parseFloat(f.field4) : null;
+  const rumbo = Number.isFinite(rumboCrudo) && rumboCrudo >= 0 ? rumboCrudo : null;
   const tSinGPS = f.field5 != null ? parseFloat(f.field5) : null;
   const id_tren = f.field6 != null ? parseInt(f.field6, 10) : null;
   const id_nodo = f.field7 != null ? parseInt(f.field7, 10) : null;
@@ -156,7 +163,7 @@ function normalizarFeed(f) {
     lat,
     lon,
     rapidez: Number.isFinite(rapidez) ? rapidez : null,
-    rumbo: Number.isFinite(rumbo) ? rumbo : null,
+    rumbo,
     tSinGPS: Number.isFinite(tSinGPS) ? tSinGPS : null,
     id_tren: Number.isInteger(id_tren) ? id_tren : null,
     id_nodo: Number.isInteger(id_nodo) ? id_nodo : null,
@@ -211,7 +218,11 @@ function validarDeduplicacion() {
 
 async function leerCanal(canal, resultados = MAX) {
   try {
-    const url = `https://api.thingspeak.com/channels/${canal.id}/feeds.json?api_key=${canal.readKey}&results=${resultados}`;
+    // status=true es obligatorio: sin ese parametro ThingSpeak devuelve las
+    // entradas sin el campo `status`, y con el se pierden la fuente de posicion,
+    // la salud de la IMU, el RTK, la validez del norte y las banderas de
+    // calibracion, aunque el nodo si los haya enviado.
+    const url = `https://api.thingspeak.com/channels/${canal.id}/feeds.json?api_key=${canal.readKey}&results=${resultados}&status=true`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const js = await res.json();
@@ -223,7 +234,10 @@ async function leerCanal(canal, resultados = MAX) {
       .filter(f => {
         if (f.lat === null || f.lon === null || f.id_tren === null || f.id_nodo === null || f.tSinGPS === null) return false;
         if (!Number.isFinite(f.lat) || !Number.isFinite(f.lon) || !Number.isFinite(f.tSinGPS)) return false;
-        if (f.rumbo === null || !Number.isFinite(f.rumbo)) return false;
+        // Un rumbo desconocido no invalida la entrada: posicion, velocidad y
+        // vibracion siguen siendo datos buenos. Antes se descartaba la lectura
+        // entera, de modo que la fase estatica desaparecia del mapa.
+        if (f.field4 != null && !Number.isFinite(parseFloat(f.field4))) return false;
         if (isNaN(f.timestampMs)) return false;
         return (ahora - f.timestampMs) <= MAX_EDAD_MS;
       });
