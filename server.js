@@ -124,7 +124,16 @@ function parseStatus(status) {
   // El rumbo llega como -1 mientras el nodo no ha aprendido la referencia de
   // norte, lo que ocurre durante toda la fase estatica. Si el patron no acepta
   // el signo no coincide nada, y se pierde el bloque completo, no solo el rumbo.
-  const mainRegex = /SRC_(\d+)_IMU_(\d+)_HDG_(-?\d+)_NORTH_(\d+)_RTK_(\d+)(?:_REFSD)?_CAL_I(\d)(\d)M(\d)(\d)/;
+  //
+  // Por la misma razon se admite relleno alrededor del rumbo. El nodo lo
+  // formatea con String(float, 0), que en Arduino pasa por dtostrf con un ancho
+  // minimo de dos caracteres, de modo que un rumbo de un solo digito viaja como
+  // "_HDG_ 4_", con un espacio delante. Ocurrio en las entradas 127, 130 y 148
+  // del canal el 20 de septiembre de 2026, con rumbos de 3, 9 y 4 grados: la
+  // fila llegaba completa y la interfaz la pintaba sin fuente ni estado de IMU.
+  // El nodo ya redondea a entero, pero esas entradas siguen en el historial y
+  // el rumbo es el unico campo que atraviesa un formateador de coma flotante.
+  const mainRegex = /SRC_(\d+)_IMU_(\d+)_HDG_\s*(-?\d+)\s*_NORTH_(\d+)_RTK_(\d+)(?:_REFSD)?_CAL_I(\d)(\d)M(\d)(\d)/;
   const match = status.match(mainRegex);
   if (!match) return result;
 
