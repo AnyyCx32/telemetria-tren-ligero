@@ -623,11 +623,11 @@
         document.getElementById('limitSelect').addEventListener('change', actualizarHistorial);
         document.getElementById('trenSelect').addEventListener('change', actualizarHistorial);
 
-        // Actualización periódica cada 15 segundos (estado y opciones de trenes)
+        // Actualización periódica cada 5 segundos (estado y opciones de trenes)
         setInterval(() => {
             actualizarEstado();
             cargarOpcionesTrenes();
-        }, 15000);
+        }, 5000);
     </script>
 </body>
 </html>

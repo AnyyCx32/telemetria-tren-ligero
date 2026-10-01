@@ -381,7 +381,7 @@ async function actualizar() {
 
 async function iniciarCiclo() {
   await actualizar();
-  setTimeout(iniciarCiclo, 15000);
+  setTimeout(iniciarCiclo, 5000);
 }
 
 // =================== API ===================
