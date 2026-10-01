@@ -409,8 +409,22 @@
 
     <script>
         // Inicializar mapa
-        const map = L.map("map").setView([19.4326, -99.1332], 13);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+        // OSM sirve mosaicos hasta el nivel 19; de ahi a 21 Leaflet los amplia.
+        const map = L.map("map", { maxZoom: 21 }).setView([19.4326, -99.1332], 13);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxNativeZoom: 19,
+            maxZoom: 21
+        }).addTo(map);
+
+        // El mapa se encuadra a los trenes la primera vez. Despues solo se
+        // reacomoda si el usuario lleva un minuto sin tocarlo y algun tren
+        // quedo fuera de la vista, y aun entonces conserva su zoom.
+        const INACTIVIDAD_RECENTRADO_MS = 60000;
+        let mapaEncuadrado = false;
+        let ultimaInteraccion = 0;
+        ["mousedown", "touchstart", "wheel", "keydown"].forEach(ev =>
+            map.getContainer().addEventListener(ev, () => { ultimaInteraccion = Date.now(); }, { passive: true })
+        );
 
         const colores = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
         const marcadores = {};
@@ -527,8 +541,14 @@
                 });
 
                 if (bounds.length > 0) {
-                    const group = L.featureGroup(Object.values(marcadores));
-                    map.fitBounds(group.getBounds().pad(0.2));
+                    const zona = L.featureGroup(Object.values(marcadores)).getBounds();
+                    if (!mapaEncuadrado) {
+                        map.fitBounds(zona.pad(0.2), { maxZoom: 17 });
+                        mapaEncuadrado = true;
+                    } else if (Date.now() - ultimaInteraccion > INACTIVIDAD_RECENTRADO_MS
+                               && !map.getBounds().contains(zona)) {
+                        map.fitBounds(zona.pad(0.2), { maxZoom: map.getZoom() });
+                    }
                 }
 
                 loading.style.display = 'none';
