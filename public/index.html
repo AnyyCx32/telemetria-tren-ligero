@@ -476,7 +476,7 @@
 
                 trenes.forEach(t => {
                     const p = t.posicion;
-                    const estado = p.gps_off_s < 35 ? "VERDE" : p.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
+                    const estado = t.gps_off_s < 35 ? "VERDE" : t.gps_off_s <= 60 ? "AMARILLO" : "ROJO";
                     const fecha = new Date(t.timestamp).toLocaleString();
                     const key = `${t.id_tren}:${t.id_nodo}`;
                     const color = colorTren(t.id_tren);
